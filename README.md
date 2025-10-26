@@ -9,6 +9,7 @@ Cool potential next steps:
 - generalize code (e.g., support all trains instead of just the ones I care about, maybe support other train systems?)
 - customizability (e.g., allow user to override "near enough" distance/time, specify train, filter on direction, etc.)
 - better document code semantics (e.g., which methods return a Result<T>, which an Option<T>, which a T, and why?)
+- code hygiene - limit publicness of data members and helper functions
 - handle malformed data better 
 - auto download train data from Makefile if not present, and store it in a more consistent, reliable place
 -- currently assume a consistent delivery format and return an error if wrong, but could try to proceed instead

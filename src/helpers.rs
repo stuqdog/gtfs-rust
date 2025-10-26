@@ -65,6 +65,7 @@ pub fn route_from_train_info(ti: &TrainInfo) -> Option<String> {
         .map(|ri| ri.to_string())
 }
 
+// given train info and a stop ID, determine when the train is expected to arrive
 pub fn eta_from_train_info(ti: &TrainInfo, stop_id: &String) -> Option<String> {
     let arrival_info = ti
         .trip_update
@@ -107,7 +108,8 @@ pub fn get_stop(stops: &Stops, stop_id: &String) -> String {
 pub fn stop_id_from_train_info(ti: &TrainInfo) -> String {
     let stop_time_updates = &ti.trip_update.stop_time_update;
     let now = Utc::now().timestamp();
-    // (TODO) clean up a bit, this is a little awkward
+    // (TODO) clean up a bit, this is a little awkward. also it's the second place we iter over
+    // `stop_time_updates` (see also `eta_from_train_info`), which could probably be cleaned up
     let (_, next_stop) =
         stop_time_updates
             .iter()
@@ -128,7 +130,7 @@ pub fn stop_id_from_train_info(ti: &TrainInfo) -> String {
     next_stop.unwrap_or_else(|| ti.vehicle_position.stop_id().to_string())
 }
 
-pub fn time_until_ts(ts: i64) -> Option<Duration> {
+fn time_until_ts(ts: i64) -> Option<Duration> {
     let now = Utc::now().to_utc();
     DateTime::from_timestamp(ts, 0).map(|ts| ts - now)
 }
@@ -143,18 +145,6 @@ pub async fn get_feed() -> Result<Vec<FeedEntity>> {
             .await?;
 
     Ok(FeedMessage::decode(res)?.entity)
-}
-
-// tells if a given stop is within one mile of the provided latitude/longitude
-fn stop_is_near(stop: &Stop, lat: f64, lon: f64) -> bool {
-    let stop_loc = Location::new(stop.stop_lat, stop.stop_lon);
-    let loc = Location::new(lat, lon);
-    stop_loc
-        // (TODO) `Distance::from_meters` isn't a const function but it would be nice to have
-        // this value be shared in the long term, as more functionality would probably be nice
-        // to add
-        .is_in_circle(&loc, Distance::from_meters(1610))
-        .unwrap_or(false)
 }
 
 // (q) better to have this live here or in types.rs? I think it's better here because we
@@ -180,13 +170,23 @@ pub fn get_stops() -> Result<Stops> {
 // filters a train feed to find trains at or approaching the given stop
 pub fn find_trains_near_stop(feed: &[TrainInfo], stop: &Stop) -> Vec<TrainInfo> {
     feed.iter().fold(vec![], |mut acc, ti| {
-        if let Some(stop_id) = &ti.vehicle_position.stop_id {
-            if stop_id == &stop.stop_id {
-                acc.push(ti.clone());
-            }
+        if stop_id_from_train_info(ti) == stop.stop_id {
+            acc.push(ti.clone());
         }
         acc
     })
+}
+
+// tells if a given stop is within one mile of the provided latitude/longitude
+fn stop_is_near(stop: &Stop, lat: f64, lon: f64) -> bool {
+    let stop_loc = Location::new(stop.stop_lat, stop.stop_lon);
+    let loc = Location::new(lat, lon);
+    stop_loc
+        // (TODO) `Distance::from_meters` isn't a const function but it would be nice to have
+        // this value be shared in the long term, as more functionality would probably be nice
+        // to add
+        .is_in_circle(&loc, Distance::from_meters(1610))
+        .unwrap_or(false)
 }
 
 // filter stops based on proximity to given lat/lon

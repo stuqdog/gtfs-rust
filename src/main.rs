@@ -2,7 +2,6 @@ use std::env;
 
 use ::gtfs_poc::{helpers, types};
 use anyhow::{anyhow, Result};
-use gtfs_poc::helpers::stop_id_from_train_info;
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
@@ -26,17 +25,14 @@ pub async fn main() -> Result<()> {
     for (_, stop) in helpers::find_stops_near(&stops, lat, lon) {
         let nearby_trains = helpers::find_trains_near_stop(&train_info, &stop);
         for train in nearby_trains {
-            let train_stop_id = stop_id_from_train_info(&train);
+            let train_stop_id = helpers::stop_id_from_train_info(&train);
             let eta = match helpers::eta_from_train_info(&train, &train_stop_id) {
                 Some(eta) => eta,
-                None => continue,
+                None => continue, // either ETA is in the past or more than 30min in the future
             };
             let direction = types::Directionality::from_train_info(&train);
             let route = helpers::route_from_train_info(&train).unwrap_or("<UNKNOWN>".to_string());
             let stop = helpers::get_stop(&stops, &train_stop_id);
-            if &stop == "<UNKNOWN>" {
-                println!("unknown stop! stop_id is {train_stop_id}");
-            }
             let direction = direction.to_string();
 
             // (TODO) this isn't exactly the prettiest way to share information but, it works!
