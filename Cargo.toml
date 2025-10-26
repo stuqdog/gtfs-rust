@@ -1,0 +1,21 @@
+[package]
+edition = "2021"
+name = "gtfs-poc"
+version = "0.0.1"
+
+[[bin]]
+name = "gtfs"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.100"
+chrono = "0.4.42"
+csv = "1.4.0"
+geoutils = "0.5.1"
+humanize-duration = { version = "0.0.7", features = ["chrono"] }
+prost = "0.14.1"
+reqwest = { version =  "0.12.24", features = ["blocking"] }
+serde = { version = "1.0.228", features = ["derive"] }
+tokio = { version = "1.48.0", features = ["full", "macros"] }
+#tokio = { version = "1.19", features = ["rt-multi-thread", "time", "fs", "macros", "net"] }
+
