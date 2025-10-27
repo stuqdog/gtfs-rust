@@ -1,4 +1,5 @@
-A simple MTA gtfs-rt reader/parser, written in rust.
+A simple MTA gtfs-rt reader/parser, written in rust. Takes `latitude` and `longitude` as 
+command line arguments, returns nearby trains (currently just the yellow lines that I use!).
 
 Reader beware: this is very much a POC. hacky and overly specific choices abound, and they
 tend to be oriented around what I personally would find useful.
