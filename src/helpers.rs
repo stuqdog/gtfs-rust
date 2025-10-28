@@ -11,41 +11,56 @@ use crate::{
     types::{Stop, Stops, TrainInfo},
 };
 
+// (TODO) MTA gives multiple endpoints, each only serving a subset of the train data. this
+// should combine all of them instead of being limited to only the trains that I care about!
+async fn get_feed() -> Result<Vec<FeedEntity>> {
+    let res =
+        reqwest::get("https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-nqrw")
+            .await?
+            .bytes()
+            .await?;
+
+    Ok(FeedMessage::decode(res)?.entity)
+}
+
 // unfortunately, MTA gives us the FeedEntity stream in a pretty unhelpful form. Every
 // entry contains either a vehicle position or a trip update, but they are consistently
 // sent in pairs that match a single train. This function combines the feed into a vec
 // of entries containing both the vehicle position and trip update, and tests to ensure
 // that our invariant (of two messages per train) holds.
-pub fn train_info_from_feed(feed: &[FeedEntity]) -> Result<Vec<TrainInfo>> {
-    assert!(feed.len() % 2 == 0);
+pub async fn get_train_info() -> Result<Vec<TrainInfo>> {
+    let feed = get_feed().await?;
+    if feed.len() % 2 != 0 {
+        return Err(anyhow!(
+            "train feed invariant not met: expected two entries per train"
+        ));
+    }
 
     let mut ret = vec![];
-    let mut feed = feed.iter();
+    let mut feed = feed.into_iter();
 
     // (TODO) some pretty non-graceful error handling here, probably better to skip bad
     // cases than to fail entirely
     while let Some(fe) = feed.next() {
+        // we use a while loop here rather than the normally-cleaner `fold` because we're
+        // creating one `TrainInfo` entry out of a combination of two `FeedEntry`s.
         let fe2 = feed.next().ok_or(anyhow!("unexpected feed count"))?;
 
-        let trip_update = match &fe.trip_update {
-            Some(tu) => tu.clone(),
-            None => fe2
-                .trip_update
-                .as_ref()
-                .ok_or(anyhow!("no trip update found"))?
-                .clone(),
+        let trip_update = match fe.trip_update {
+            Some(tu) => tu,
+            None => fe2.trip_update.ok_or(anyhow!("no trip update found"))?,
         };
 
-        let vehicle_position = match &fe.vehicle {
-            Some(v) => v.clone(),
-            None => fe2
-                .vehicle
-                .as_ref()
-                .ok_or(anyhow!("no vehicle position found"))?
-                .clone(),
+        let vehicle_position = match fe.vehicle {
+            Some(v) => v,
+            None => fe2.vehicle.ok_or(anyhow!("no vehicle position found"))?,
         };
 
-        assert!(Some(&trip_update.trip) == vehicle_position.trip.as_ref());
+        if Some(&trip_update.trip) != vehicle_position.trip.as_ref() {
+            return Err(anyhow!(
+                "train feed invariant not met: trip updates of companion entries were not equal"
+            ));
+        }
 
         ret.push(TrainInfo {
             trip_update,
@@ -72,9 +87,9 @@ pub fn eta_from_train_info(ti: &TrainInfo, stop_id: &String) -> Option<String> {
         .stop_time_update
         .iter()
         .find(|stu| stu.stop_id.as_ref() == Some(stop_id))
-        .and_then(|stu| stu.arrival.clone());
+        .and_then(|stu| stu.arrival.as_ref());
 
-    let mut eta = arrival_info.as_ref().map(|ste| ste.time()).unwrap_or(0);
+    let mut eta = arrival_info.map(|ste| ste.time()).unwrap_or(0);
     if eta != 0 {
         let delay = arrival_info.and_then(|ste| ste.delay).unwrap_or(0);
         eta += delay as i64;
@@ -135,18 +150,6 @@ fn time_until_ts(ts: i64) -> Option<Duration> {
     DateTime::from_timestamp(ts, 0).map(|ts| ts - now)
 }
 
-// (TODO) MTA gives multiple endpoints, each only serving a subset of the train data. this
-// should combine all of them instead of being limited to only the trains that I care about!
-pub async fn get_feed() -> Result<Vec<FeedEntity>> {
-    let res =
-        reqwest::get("https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-nqrw")
-            .await?
-            .bytes()
-            .await?;
-
-    Ok(FeedMessage::decode(res)?.entity)
-}
-
 // (q) better to have this live here or in types.rs? I think it's better here because we
 // aren't introducing error types and env parsing to types.rs, and because this is a bit
 // complicated for a constructor. but I could see the argument going the other way.
@@ -169,12 +172,10 @@ pub fn get_stops() -> Result<Stops> {
 
 // filters a train feed to find trains at or approaching the given stop
 pub fn find_trains_near_stop(feed: &[TrainInfo], stop: &Stop) -> Vec<TrainInfo> {
-    feed.iter().fold(vec![], |mut acc, ti| {
-        if stop_id_from_train_info(ti) == stop.stop_id {
-            acc.push(ti.clone());
-        }
-        acc
-    })
+    feed.iter()
+        .filter(|ti| stop_id_from_train_info(ti) == stop.stop_id)
+        .cloned()
+        .collect()
 }
 
 // tells if a given stop is within one mile of the provided latitude/longitude
@@ -192,8 +193,9 @@ fn stop_is_near(stop: &Stop, lat: f64, lon: f64) -> bool {
 // filter stops based on proximity to given lat/lon
 pub fn find_stops_near(stops: &Stops, lat: f64, lon: f64) -> Stops {
     stops
-        .clone()
-        .into_iter()
+        .iter()
+        // separating filter and map is more legible than a `filter_map` call here IMO
         .filter(|(_, stop)| stop_is_near(stop, lat, lon))
+        .map(|(k, v)| (k.clone(), v.clone()))
         .collect()
 }

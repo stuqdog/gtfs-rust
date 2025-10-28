@@ -18,9 +18,8 @@ pub async fn main() -> Result<()> {
     let lat = lat.ok_or(anyhow!("no latitude provided"))?;
     let lon = lon.ok_or(anyhow!("no longitude provided"))?;
 
-    let feed = helpers::get_feed().await?;
     let stops = helpers::get_stops()?;
-    let train_info = helpers::train_info_from_feed(&feed)?;
+    let train_info = helpers::get_train_info().await?;
 
     for (_, stop) in helpers::find_stops_near(&stops, lat, lon) {
         let nearby_trains = helpers::find_trains_near_stop(&train_info, &stop);
